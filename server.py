@@ -522,3 +522,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
         connections.pop(player_id, None)
         players.pop(player_id, None)
+
+@app.get("/debug/routes")
+async def debug_routes():
+    return [
+        {
+            "path": getattr(route, "path", None),
+            "type": type(route).__name__
+        }
+        for route in app.routes
+    ]
