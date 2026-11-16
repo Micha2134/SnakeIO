@@ -1,0 +1,561 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snake.io</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #10151d;
+    color: white;
+    font-family: Arial, sans-serif;
+}
+
+canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+}
+
+#topbar {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    z-index: 5;
+    background: rgba(10, 15, 25, 0.85);
+    padding: 12px 18px;
+    border-radius: 12px;
+    border: 1px solid #344052;
+}
+
+#topbar h1 {
+    margin: 0;
+    font-size: 22px;
+    color: #59ed9a;
+}
+
+#status {
+    font-size: 12px;
+    color: #bbb;
+    margin-top: 5px;
+}
+
+#leaderboard {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    width: 210px;
+    padding: 15px;
+    background: rgba(10, 15, 25, 0.88);
+    border: 1px solid #344052;
+    border-radius: 12px;
+    z-index: 5;
+}
+
+#leaderboard h3 {
+    margin: 0 0 12px;
+    color: #59ed9a;
+}
+
+#scores {
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+#help {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 15, 25, 0.85);
+    padding: 12px 20px;
+    border-radius: 12px;
+    color: #ddd;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+#death {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: rgba(0,0,0,0.7);
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+#death .panel {
+    background: #182333;
+    padding: 30px;
+    border-radius: 18px;
+    border: 1px solid #52657d;
+}
+
+#death button {
+    background: #36c878;
+    color: #07140d;
+    border: 0;
+    border-radius: 8px;
+    padding: 12px 22px;
+    font-weight: bold;
+    cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="topbar">
+    <h1>🐍 SNAKE.IO</h1>
+    <div id="status">Connecting...</div>
+</div>
+
+<div id="leaderboard">
+    <h3>🏆 Leaderboard</h3>
+    <div id="scores">Waiting for players...</div>
+</div>
+
+<div id="help">
+    🖱️ Move mouse to steer &nbsp; | &nbsp;
+    SPACE or hold mouse button to boost
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="death">
+    <div class="panel">
+        <h1>💀 Your snake died!</h1>
+        <p>Try again and beat your high score.</p>
+        <button onclick="location.reload()">PLAY AGAIN</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const statusText = document.getElementById("status");
+const scoresElement = document.getElementById("scores");
+
+let socket;
+let myId = null;
+
+let previousState = null;
+let currentState = null;
+let lastStateTime = 0;
+
+let mouseX = window.innerWidth / 2;
+let mouseY = window.innerHeight / 2;
+
+let boosting = false;
+let lastInput = 0;
+
+let worldWidth = 2000;
+let worldHeight = 1200;
+
+let cameraX = worldWidth / 2;
+let cameraY = worldHeight / 2;
+
+let lastAngle = 0;
+let dead = false;
+
+
+// =================================
+// CANVAS SIZE
+// =================================
+
+function resizeCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+
+// =================================
+// CONNECT TO GAME SERVER
+// =================================
+
+function connect() {
+    const protocol =
+        location.protocol === "https:" ? "wss:" : "ws:";
+
+    socket = new WebSocket(
+        protocol + "//" + location.host + "/ws"
+    );
+
+    socket.onopen = () => {
+        statusText.textContent = "🟢 Connected";
+    };
+
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "welcome") {
+            myId = data.id;
+            statusText.textContent = "🟢 Playing | ID: " + myId;
+            return;
+        }
+
+        if (data.players) {
+            previousState = currentState || data;
+            currentState = data;
+            lastStateTime = performance.now();
+
+            updateLeaderboard(data);
+
+            const me = data.players.find(
+                player => player.id === myId
+            );
+
+            if (me && !me.alive && !dead) {
+                dead = true;
+                document.getElementById("death").style.display = "flex";
+            }
+        }
+    };
+
+    socket.onclose = () => {
+        statusText.textContent = "🔴 Disconnected - reconnecting...";
+        setTimeout(connect, 2000);
+    };
+
+    socket.onerror = () => {
+        statusText.textContent = "Connection error";
+    };
+}
+
+connect();
+
+
+// =================================
+// SEND PLAYER CONTROLS
+// =================================
+
+function sendControls() {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !myId) {
+        return;
+    }
+
+    const now = performance.now();
+
+    if (now - lastInput < 50) {
+        return;
+    }
+
+    lastInput = now;
+
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+
+    const angle = Math.atan2(
+        mouseY - centerY,
+        mouseX - centerX
+    );
+
+    lastAngle = angle;
+
+    socket.send(JSON.stringify({
+        angle: angle,
+        boost: boosting
+    }));
+}
+
+canvas.addEventListener("mousemove", (event) => {
+    mouseX = event.clientX;
+    mouseY = event.clientY;
+    sendControls();
+});
+
+canvas.addEventListener("touchmove", (event) => {
+    event.preventDefault();
+
+    const touch = event.touches[0];
+
+    mouseX = touch.clientX;
+    mouseY = touch.clientY;
+
+    sendControls();
+}, { passive: false });
+
+canvas.addEventListener("mousedown", () => {
+    boosting = true;
+    sendControls();
+});
+
+window.addEventListener("mouseup", () => {
+    boosting = false;
+    sendControls();
+});
+
+canvas.addEventListener("touchstart", () => {
+    boosting = true;
+    sendControls();
+});
+
+window.addEventListener("touchend", () => {
+    boosting = false;
+    sendControls();
+});
+
+window.addEventListener("keydown", (event) => {
+    if (event.code === "Space") {
+        boosting = true;
+        sendControls();
+        event.preventDefault();
+    }
+});
+
+window.addEventListener("keyup", (event) => {
+    if (event.code === "Space") {
+        boosting = false;
+        sendControls();
+    }
+});
+
+
+// =================================
+// LEADERBOARD
+// =================================
+
+function updateLeaderboard(data) {
+    const ranking = [...data.players].sort(
+        (a, b) => b.score - a.score
+    );
+
+    scoresElement.innerHTML = "";
+
+    ranking.slice(0, 8).forEach((player, index) => {
+        const row = document.createElement("div");
+
+        row.textContent =
+            (index + 1) + ". " +
+            (player.id === myId ? "YOU" : player.id) +
+            " — " + player.score;
+
+        if (player.id === myId) {
+            row.style.color = "#59ed9a";
+        }
+
+        scoresElement.appendChild(row);
+    });
+}
+
+
+// =================================
+// CAMERA
+// =================================
+
+function getMe(state) {
+    if (!state) return null;
+
+    return state.players.find(
+        player => player.id === myId
+    );
+}
+
+function updateCamera() {
+    const me = getMe(currentState);
+
+    if (!me) return;
+
+    const smoothing = 0.12;
+
+    cameraX += (me.x - cameraX) * smoothing;
+    cameraY += (me.y - cameraY) * smoothing;
+}
+
+
+// =================================
+// DRAW BACKGROUND
+// =================================
+
+function drawBackground() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    ctx.fillStyle = "#101923";
+    ctx.fillRect(0, 0, w, h);
+
+    const gridSize = 50;
+
+    const offsetX = (-cameraX + w / 2) % gridSize;
+    const offsetY = (-cameraY + h / 2) % gridSize;
+
+    ctx.strokeStyle = "#1b2a39";
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+
+    for (let x = offsetX; x < w; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+    }
+
+    for (let y = offsetY; y < h; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+    }
+
+    ctx.stroke();
+
+    const left = w / 2 - cameraX;
+    const top = h / 2 - cameraY;
+
+    ctx.strokeStyle = "#ff5656";
+    ctx.lineWidth = 8;
+
+    ctx.strokeRect(
+        left,
+        top,
+        worldWidth,
+        worldHeight
+    );
+}
+
+
+// =================================
+// DRAW FOOD
+// =================================
+
+function drawFood(items) {
+    if (!items) return;
+
+    for (const item of items) {
+        const x = item.x - cameraX + window.innerWidth / 2;
+        const y = item.y - cameraY + window.innerHeight / 2;
+
+        ctx.beginPath();
+        ctx.arc(x, y, item.size, 0, Math.PI * 2);
+
+        ctx.fillStyle = "#ffe66d";
+        ctx.shadowColor = "#ffe66d";
+        ctx.shadowBlur = 12;
+
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+
+// =================================
+// DRAW SNAKES
+// =================================
+
+function drawSnakes(state) {
+    if (!state) return;
+
+    for (const player of state.players) {
+        if (!player.alive || !player.body.length) continue;
+
+        const body = player.body;
+
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        // Snake body
+        ctx.beginPath();
+
+        body.forEach((segment, index) => {
+            const x =
+                segment.x - cameraX + window.innerWidth / 2;
+
+            const y =
+                segment.y - cameraY + window.innerHeight / 2;
+
+            if (index === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 15;
+        ctx.stroke();
+
+        // Snake head
+        const head = body[0];
+
+        const hx =
+            head.x - cameraX + window.innerWidth / 2;
+
+        const hy =
+            head.y - cameraY + window.innerHeight / 2;
+
+        ctx.beginPath();
+        ctx.arc(hx, hy, 9, 0, Math.PI * 2);
+
+        ctx.fillStyle = player.color;
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = "white";
+
+        ctx.beginPath();
+        ctx.arc(hx - 3, hy - 3, 2.5, 0, Math.PI * 2);
+        ctx.arc(hx + 3, hy - 3, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Player marker
+        if (player.id === myId) {
+            ctx.fillStyle = "white";
+            ctx.font = "12px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("YOU", hx, hy - 20);
+        }
+    }
+}
+
+
+// =================================
+// MAIN RENDER LOOP
+// =================================
+
+function render() {
+    requestAnimationFrame(render);
+
+    if (!currentState) {
+        ctx.fillStyle = "#101923";
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+        ctx.fillStyle = "white";
+        ctx.font = "22px Arial";
+        ctx.textAlign = "center";
+
+        ctx.fillText(
+            "Connecting to Snake.io...",
+            window.innerWidth / 2,
+            window.innerHeight / 2
+        );
+
+        return;
+    }
+
+    updateCamera();
+
+    drawBackground();
+    drawFood(currentState.food);
+    drawSnakes(currentState);
+}
+
+render();
+</script>
+
+</body>
+</html>
