@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,9 +6,7 @@
 <title>Snake.io</title>
 
 <style>
-* {
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
     margin: 0;
@@ -122,6 +119,7 @@ canvas {
     text-align: center;
     padding: 24px;
 }
+
 #login .panel {
     max-width: 420px;
     width: 100%;
@@ -130,8 +128,10 @@ canvas {
     border-radius: 18px;
     padding: 32px 24px;
 }
+
 #login h1 { color: #59ed9a; margin-top: 0; }
 #login p { color: #ddd; line-height: 1.5; }
+
 #login a {
     display: inline-block;
     margin-top: 12px;
@@ -142,7 +142,6 @@ canvas {
     padding: 13px 22px;
     font-weight: bold;
 }
-
 </style>
 </head>
 
@@ -156,19 +155,18 @@ canvas {
     </div>
 </div>
 
-
 <div id="topbar">
-    <h1>ðŸ SNAKE.IO</h1>
+    <h1>🐍 SNAKE.IO</h1>
     <div id="status">Connecting...</div>
 </div>
 
 <div id="leaderboard">
-    <h3>ðŸ† Leaderboard</h3>
+    <h3>🏆 Leaderboard</h3>
     <div id="scores">Waiting for players...</div>
 </div>
 
 <div id="help">
-    ðŸ–±ï¸ Move mouse to steer &nbsp; | &nbsp;
+    🖱️ Move mouse to steer &nbsp; | &nbsp;
     SPACE or hold mouse button to boost
 </div>
 
@@ -176,7 +174,7 @@ canvas {
 
 <div id="death">
     <div class="panel">
-        <h1>ðŸ’€ Your snake died!</h1>
+        <h1>💀 Your snake died!</h1>
         <p>Try again and beat your high score.</p>
         <button onclick="location.reload()">PLAY AGAIN</button>
     </div>
@@ -310,6 +308,7 @@ function connect() {
 
 startGame();
 
+
 // =================================
 // SEND PLAYER CONTROLS
 // =================================
@@ -412,7 +411,7 @@ function updateLeaderboard(data) {
 
         row.textContent =
             (index + 1) + ". " +
-            player.name +
+            (player.name || "Player") +
             (player.id === myId ? " (YOU)" : "") +
             " — " + player.score;
 
@@ -580,13 +579,20 @@ function drawSnakes(state) {
         ctx.arc(hx + 3, hy - 3, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Player marker
-        if (player.id === myId) {
-            ctx.fillStyle = "white";
-            ctx.font = "12px Arial";
-            ctx.textAlign = "center";
-            ctx.fillText("YOU", hx, hy - 20);
-        }
+        // Discord display name above every snake
+        const playerName = player.name || "Player";
+
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+
+        // Dark outline makes the name readable on every background
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "black";
+        ctx.strokeText(playerName, hx, hy - 18);
+
+        ctx.fillStyle = "white";
+        ctx.fillText(playerName, hx, hy - 18);
     }
 }
 
