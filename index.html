@@ -110,23 +110,65 @@ canvas {
     font-weight: bold;
     cursor: pointer;
 }
+
+#login {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 10, 18, 0.96);
+    text-align: center;
+    padding: 24px;
+}
+#login .panel {
+    max-width: 420px;
+    width: 100%;
+    background: #182333;
+    border: 1px solid #52657d;
+    border-radius: 18px;
+    padding: 32px 24px;
+}
+#login h1 { color: #59ed9a; margin-top: 0; }
+#login p { color: #ddd; line-height: 1.5; }
+#login a {
+    display: inline-block;
+    margin-top: 12px;
+    background: #5865F2;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    padding: 13px 22px;
+    font-weight: bold;
+}
+
 </style>
 </head>
 
 <body>
 
+<div id="login">
+    <div class="panel">
+        <h1>🐍 SNAKE.IO</h1>
+        <p>Sign in with Discord to play. Your Discord display name will appear in the game leaderboard.</p>
+        <a href="/login">LOGIN WITH DISCORD</a>
+    </div>
+</div>
+
+
 <div id="topbar">
-    <h1>🐍 SNAKE.IO</h1>
+    <h1>ðŸ SNAKE.IO</h1>
     <div id="status">Connecting...</div>
 </div>
 
 <div id="leaderboard">
-    <h3>🏆 Leaderboard</h3>
+    <h3>ðŸ† Leaderboard</h3>
     <div id="scores">Waiting for players...</div>
 </div>
 
 <div id="help">
-    🖱️ Move mouse to steer &nbsp; | &nbsp;
+    ðŸ–±ï¸ Move mouse to steer &nbsp; | &nbsp;
     SPACE or hold mouse button to boost
 </div>
 
@@ -134,7 +176,7 @@ canvas {
 
 <div id="death">
     <div class="panel">
-        <h1>💀 Your snake died!</h1>
+        <h1>ðŸ’€ Your snake died!</h1>
         <p>Try again and beat your high score.</p>
         <button onclick="location.reload()">PLAY AGAIN</button>
     </div>
@@ -191,6 +233,27 @@ resizeCanvas();
 // CONNECT TO GAME SERVER
 // =================================
 
+async function startGame() {
+    try {
+        const response = await fetch("/api/me", {
+            credentials: "same-origin"
+        });
+        const user = await response.json();
+
+        if (!response.ok || !user.logged_in) {
+            document.getElementById("login").style.display = "flex";
+            statusText.textContent = "Please sign in with Discord";
+            return;
+        }
+
+        statusText.textContent = "Signed in as " + user.name;
+        connect();
+    } catch (error) {
+        statusText.textContent = "Could not check Discord login";
+        document.getElementById("login").style.display = "flex";
+    }
+}
+
 function connect() {
     const protocol =
         location.protocol === "https:" ? "wss:" : "ws:";
@@ -208,7 +271,7 @@ function connect() {
 
         if (data.type === "welcome") {
             myId = data.id;
-            statusText.textContent = "🟢 Playing | ID: " + myId;
+            statusText.textContent = "🟢 Playing as " + data.name;
             return;
         }
 
@@ -230,7 +293,12 @@ function connect() {
         }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
+        if (event.code === 4401) {
+            document.getElementById("login").style.display = "flex";
+            statusText.textContent = "Please sign in with Discord";
+            return;
+        }
         statusText.textContent = "🔴 Disconnected - reconnecting...";
         setTimeout(connect, 2000);
     };
@@ -240,8 +308,7 @@ function connect() {
     };
 }
 
-connect();
-
+startGame();
 
 // =================================
 // SEND PLAYER CONTROLS
@@ -345,7 +412,8 @@ function updateLeaderboard(data) {
 
         row.textContent =
             (index + 1) + ". " +
-            (player.id === myId ? "YOU" : player.id) +
+            player.name +
+            (player.id === myId ? " (YOU)" : "") +
             " — " + player.score;
 
         if (player.id === myId) {
